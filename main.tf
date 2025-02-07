@@ -11,6 +11,24 @@ locals {
       s3_bucket_arn = val.s3_bucket_name != null ? "${local.s3_arn_prefix}${val.s3_bucket_name}" : one(data.aws_s3_bucket.landing[*].arn)
     })
   }
+
+  # create list of maps that holds the public keys of each user, in that way we can have more than one public key to user
+  ssh_keys = flatten([
+    for val in var.sftp_users : [
+      for key in val["public_keys"] : {
+        user_name  = val["user_name"]
+        public_key = key,
+        token      = md5("${val["user_name"]}#${key}")
+      }
+    ]
+  ])
+  # create map of maps that holds the keys of each user, that way we iterate over this map and add all the keys that user needs
+  ssh_keys_expanded = {
+    for v in local.ssh_keys : v["token"] => {
+      public_key = v["public_key"]
+      user_name  = v["user_name"]
+    }
+  }
 }
 
 data "aws_partition" "default" {
@@ -49,7 +67,7 @@ resource "aws_transfer_server" "default" {
 }
 
 resource "aws_transfer_user" "default" {
-  for_each = local.enabled ? var.sftp_users : {}
+  for_each = local.enabled ? local.user_names_map : {}
 
   server_id = join("", aws_transfer_server.default[*].id)
   role      = aws_iam_role.s3_access_for_sftp_users[each.value.user_name].arn
@@ -87,7 +105,7 @@ resource "aws_transfer_user" "default" {
 }
 
 resource "aws_transfer_ssh_key" "default" {
-  for_each = local.enabled ? var.sftp_users : {}
+  for_each = local.enabled ? local.ssh_keys_expanded : {}
 
   server_id = join("", aws_transfer_server.default[*].id)
 
@@ -102,7 +120,7 @@ resource "aws_transfer_ssh_key" "default" {
 resource "aws_eip" "sftp" {
   count = local.enabled && var.eip_enabled ? length(var.subnet_ids) : 0
 
-  vpc = local.is_vpc
+  domain = local.is_vpc ? "vpc" : null
 
   tags = module.this.tags
 }
