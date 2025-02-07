@@ -7,7 +7,7 @@ variable "domain" {
 variable "sftp_users" {
   type = map(object({
     user_name           = string
-    public_key          = list(string)
+    public_keys         = list(string)
     s3_bucket_name      = optional(string)
     bucket_permissions  = optional(list(string))
     home_directory_type = optional(string)
